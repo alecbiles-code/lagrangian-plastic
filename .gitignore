@@ -1,0 +1,8 @@
+data/
+output/tracks/
+output/figures/
+__pycache__/
+*.nc
+*.zarr
+.cdsapirc
+node_modules/

@@ -1,0 +1,820 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Lagrangian Plastic Pathways</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="preconnect" href="https://unpkg.com">
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.1.1/dist/maplibre-gl.css">
+    <script src="https://unpkg.com/maplibre-gl@4.1.1/dist/maplibre-gl.js"></script>
+    <script src="https://unpkg.com/pmtiles@3.0.6/dist/pmtiles.js"></script>
+    <style>
+        :root {
+            --bg: #f4f3f1;
+            --panel: rgba(255, 255, 255, 0.92);
+            --panel-solid: #ffffff;
+            --border: rgba(0,0,0,0.09);
+            --border-hover: rgba(0,0,0,0.18);
+            --cyan: #0091b3;
+            --red: #c9422a;
+            --green: #1a8a6a;
+            --amber: #a17a12;
+            --text-1: #1a1a1a;
+            --text-2: #6b6b6b;
+            --text-3: #9a9a9a;
+            --font-body: 'DM Sans', system-ui, sans-serif;
+            --font-mono: 'DM Sans', system-ui, sans-serif;
+            --radius: 4px;
+            --panel-blur: 14px;
+        }
+
+        *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: var(--font-body);
+            color: var(--text-1);
+            background: var(--bg);
+            overflow: hidden;
+            -webkit-font-smoothing: antialiased;
+        }
+
+        #map { position: absolute; inset: 0; }
+
+        /* ── LOADING ── */
+        .loading-overlay {
+            position: fixed; inset: 0; z-index: 200;
+            display: flex; align-items: center; justify-content: center;
+            background: var(--bg);
+            transition: opacity 0.5s ease;
+        }
+        .loading-overlay.done { opacity: 0; pointer-events: none; }
+        .loading-mark { display: flex; flex-direction: column; align-items: center; gap: 12px; }
+        .loading-ring {
+            width: 18px; height: 18px;
+            border: 1.5px solid rgba(0,145,179,0.15);
+            border-top-color: var(--cyan);
+            border-radius: 50%;
+            animation: spin 0.9s linear infinite;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .loading-label {
+            font-family: var(--font-mono);
+            font-size: 9px; letter-spacing: 0.2em; color: var(--text-3);
+        }
+
+        /* ── PANEL BASE ── */
+        .panel {
+            background: var(--panel);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            backdrop-filter: blur(var(--panel-blur));
+            -webkit-backdrop-filter: blur(var(--panel-blur));
+        }
+
+        /* ── HEADER ── */
+        .site-header {
+            position: absolute; top: 0; left: 0; right: 0; z-index: 10;
+            pointer-events: none;
+            background: linear-gradient(180deg, rgba(244,243,241,0.95) 0%, rgba(244,243,241,0.55) 60%, transparent 100%);
+            padding: 18px 22px 36px;
+        }
+        .site-header-inner { pointer-events: auto; }
+        .brand-title {
+            font-family: var(--font-body);
+            font-size: 16px;
+            font-weight: 600;
+            line-height: 1.2;
+            color: var(--text-1);
+            letter-spacing: -0.01em;
+        }
+        .brand-title span { color: var(--cyan); }
+
+        /* ── NAV ── */
+        .nav-actions {
+            position: absolute; top: 16px; right: 18px; z-index: 10;
+            display: flex; gap: 5px;
+        }
+        .nav-btn {
+            font-family: var(--font-mono);
+            font-size: 11.5px; font-weight: 500;
+            letter-spacing: 0.08em;
+            color: var(--text-2);
+            background: var(--panel);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 7px 16px;
+            cursor: pointer;
+            transition: color 0.15s, border-color 0.15s;
+            backdrop-filter: blur(var(--panel-blur));
+            -webkit-backdrop-filter: blur(var(--panel-blur));
+        }
+        .nav-btn:hover { color: var(--text-1); border-color: var(--border-hover); }
+
+        /* ── LAYERS ── */
+        .layers-panel {
+            position: absolute; top: 58px; right: 18px; z-index: 10;
+            width: 200px; padding: 12px 12px 8px;
+        }
+        .panel-label {
+            font-family: var(--font-mono);
+            font-size: 9px; font-weight: 500;
+            letter-spacing: 0.15em;
+            color: var(--text-3);
+            text-transform: uppercase;
+            margin-bottom: 8px; padding-left: 2px;
+        }
+        .layer-row {
+            display: flex; align-items: center; justify-content: space-between;
+            padding: 5px 4px; border-radius: 3px; cursor: pointer;
+            transition: background 0.12s;
+        }
+        .layer-row:hover { background: rgba(0,0,0,0.03); }
+        .layer-info {
+            display: flex; align-items: center; gap: 8px;
+            font-size: 12px; color: var(--text-2);
+        }
+        .layer-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+        .dot-particles { background: var(--cyan); }
+        .dot-tracks { background: var(--cyan); opacity: 0.4; }
+        .dot-hotspots { background: var(--red); }
+        .dot-rivers { background: var(--green); }
+
+        /* ── TOGGLE ── */
+        .toggle {
+            width: 26px; height: 14px; border-radius: 7px;
+            background: rgba(0,0,0,0.1);
+            position: relative; cursor: pointer; flex-shrink: 0;
+            transition: background 0.2s;
+        }
+        .toggle.on { background: var(--cyan); }
+        .toggle::after {
+            content: ''; position: absolute; top: 2px; left: 2px;
+            width: 10px; height: 10px; border-radius: 50%; background: #fff;
+            transition: transform 0.2s;
+        }
+        .toggle.on::after { transform: translateX(12px); }
+
+        /* ── LEGEND ── */
+        .legend-panel {
+            position: absolute; bottom: 60px; right: 18px; z-index: 10;
+            padding: 9px 12px;
+        }
+        .legend-bar {
+            width: 105px; height: 5px; border-radius: 1px;
+            background: linear-gradient(90deg, #ffd23f, #f59e0b, #e8553a, #dc2626, #7f1d1d);
+            margin: 5px 0 3px;
+        }
+        .legend-range {
+            display: flex; justify-content: space-between;
+            font-family: var(--font-mono); font-size: 8.5px; color: var(--text-3);
+        }
+
+        /* ── TIMELINE ── */
+        .timeline-bar {
+            position: absolute; bottom: 0; left: 0; right: 0; z-index: 10;
+            background: var(--panel);
+            border-top: 1px solid var(--border);
+            backdrop-filter: blur(var(--panel-blur));
+            -webkit-backdrop-filter: blur(var(--panel-blur));
+        }
+        .timeline-inner {
+            display: flex; align-items: center; gap: 14px;
+            padding: 9px 22px; max-width: 1280px; margin: 0 auto;
+        }
+        .play-btn {
+            width: 32px; height: 32px; border-radius: 50%;
+            background: var(--cyan); border: none;
+            display: flex; align-items: center; justify-content: center;
+            cursor: pointer; flex-shrink: 0;
+            transition: transform 0.12s;
+        }
+        .play-btn:hover { transform: scale(1.05); }
+        .play-btn:active { transform: scale(0.95); }
+        .play-btn svg { width: 12px; height: 12px; }
+        .play-btn .icon-play { margin-left: 1px; }
+        .play-btn .icon-pause { display: none; }
+        .play-btn.playing .icon-play { display: none; }
+        .play-btn.playing .icon-pause { display: block; }
+
+        .slider-track { flex: 1; min-width: 0; }
+        .slider-track input[type=range] {
+            -webkit-appearance: none; appearance: none;
+            width: 100%; height: 2px;
+            background: rgba(0,0,0,0.1);
+            border-radius: 0; outline: none; cursor: pointer;
+        }
+        .slider-track input[type=range]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 12px; height: 12px; border-radius: 50%;
+            background: var(--cyan); border: 2px solid var(--panel-solid);
+            cursor: pointer;
+        }
+        .slider-track input[type=range]::-moz-range-thumb {
+            width: 12px; height: 12px; border-radius: 50%;
+            background: var(--cyan); border: 2px solid var(--panel-solid);
+            cursor: pointer;
+        }
+        .day-readout {
+            font-family: var(--font-mono);
+            font-size: 12px; font-weight: 500;
+            color: var(--cyan);
+            width: 62px; text-align: right;
+            font-variant-numeric: tabular-nums; flex-shrink: 0;
+        }
+        .speed-btn {
+            font-family: var(--font-mono);
+            font-size: 10px; font-weight: 500;
+            color: var(--text-3); background: none;
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 3px 7px; cursor: pointer;
+            transition: color 0.15s, border-color 0.15s;
+            flex-shrink: 0;
+        }
+        .speed-btn:hover { color: var(--text-2); border-color: var(--border-hover); }
+
+        /* ── MODAL ── */
+        .modal-overlay {
+            position: fixed; inset: 0; z-index: 100;
+            background: rgba(0, 0, 0, 0.35);
+            display: flex; align-items: center; justify-content: center;
+            opacity: 0; pointer-events: none;
+            transition: opacity 0.25s ease;
+        }
+        .modal-overlay.open { opacity: 1; pointer-events: auto; }
+
+        .modal-sheet {
+            background: var(--panel-solid);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            max-width: 540px; width: 92%;
+            max-height: 82vh;
+            display: flex; flex-direction: column;
+            overflow: hidden;
+            box-shadow: 0 16px 48px rgba(0,0,0,0.12);
+        }
+
+        .modal-tab {
+            display: flex;
+            flex-direction: column;
+            min-height: 0;
+            overflow: hidden;
+            flex: 1;
+        }
+        .modal-tab.is-hidden { display: none; }
+
+        .modal-head {
+            padding: 22px 24px 0;
+            display: flex; justify-content: space-between; align-items: flex-start;
+            flex-shrink: 0;
+        }
+        .modal-title {
+            font-family: var(--font-body);
+            font-size: 18px; font-weight: 600;
+            line-height: 1.2; color: var(--text-1);
+        }
+        .modal-title span { color: var(--cyan); }
+        .modal-subtitle {
+            font-family: var(--font-mono);
+            font-size: 9px; font-weight: 500;
+            letter-spacing: 0.15em; color: var(--text-3); margin-top: 3px;
+        }
+        .modal-close {
+            width: 26px; height: 26px;
+            display: flex; align-items: center; justify-content: center;
+            background: none; border: 1px solid var(--border);
+            border-radius: 3px; color: var(--text-3);
+            font-size: 15px; cursor: pointer;
+            transition: color 0.15s, border-color 0.15s;
+            flex-shrink: 0;
+        }
+        .modal-close:hover { color: var(--red); border-color: rgba(201,66,42,0.2); }
+
+        .modal-body {
+            padding: 18px 24px 24px;
+            overflow-y: auto;
+            overscroll-behavior: contain;
+            min-height: 0;
+            flex: 1;
+        }
+        .modal-body::-webkit-scrollbar { width: 3px; }
+        .modal-body::-webkit-scrollbar-track { background: transparent; }
+        .modal-body::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.08); border-radius: 2px; }
+
+        .modal-body p {
+            font-size: 13px; line-height: 1.7; color: var(--text-2); margin-bottom: 10px;
+        }
+        .modal-body p strong { color: var(--text-1); font-weight: 500; }
+
+        .section-label {
+            font-family: var(--font-mono);
+            font-size: 9px; font-weight: 500;
+            letter-spacing: 0.15em; color: var(--text-3);
+            text-transform: uppercase;
+            margin-bottom: 8px; margin-top: 20px;
+        }
+
+        .legend-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 6px; }
+        .legend-item { display: flex; gap: 10px; align-items: flex-start; }
+        .legend-item-dot {
+            width: 6px; height: 6px; border-radius: 50%;
+            flex-shrink: 0; margin-top: 6px;
+        }
+        .legend-item p { font-size: 12.5px; line-height: 1.6; color: var(--text-2); margin: 0; }
+        .legend-item p strong { color: var(--text-1); font-weight: 500; }
+
+        .stats-grid {
+            display: grid; grid-template-columns: 1fr 1fr;
+            gap: 1px; margin: 14px 0;
+            background: var(--border);
+            border: 1px solid var(--border);
+            border-radius: 3px;
+            overflow: hidden;
+        }
+        .stat-cell { background: var(--panel-solid); padding: 10px 12px; }
+        .stat-label {
+            font-family: var(--font-mono);
+            font-size: 8.5px; font-weight: 500;
+            letter-spacing: 0.12em; color: var(--text-3);
+            text-transform: uppercase; margin-bottom: 2px;
+        }
+        .stat-value { font-family: var(--font-mono); font-size: 14px; font-weight: 500; }
+        .stat-value.cyan { color: var(--cyan); }
+        .stat-value.green { color: var(--green); }
+        .stat-value.red { color: var(--red); }
+        .stat-value.amber { color: var(--amber); }
+
+        .method-steps { display: flex; flex-direction: column; gap: 16px; }
+        .method-step-num {
+            font-family: var(--font-mono);
+            font-size: 10px; font-weight: 500;
+            letter-spacing: 0.08em; color: var(--cyan); opacity: 0.6;
+            margin-bottom: 2px;
+        }
+        .method-step p { font-size: 12.5px; line-height: 1.65; margin: 0; }
+
+        .modal-divider { border: none; border-top: 1px solid var(--border); margin: 20px 0; }
+
+        .source-list {
+            font-family: var(--font-mono);
+            font-size: 10.5px; line-height: 2; color: var(--text-3);
+        }
+
+        /* ── POPUP OVERRIDES ── */
+        .maplibregl-popup-content {
+            background: var(--panel) !important;
+            color: var(--text-1) !important;
+            border: 1px solid var(--border) !important;
+            border-radius: var(--radius) !important;
+            padding: 9px 12px !important;
+            font-family: var(--font-body) !important;
+            font-size: 12px !important;
+            box-shadow: 0 6px 20px rgba(0,0,0,0.1) !important;
+            backdrop-filter: blur(var(--panel-blur)) !important;
+            -webkit-backdrop-filter: blur(var(--panel-blur)) !important;
+        }
+        .maplibregl-popup-tip { border-top-color: var(--panel) !important; }
+        .maplibregl-popup-close-button { color: var(--text-3) !important; font-size: 15px !important; padding: 2px 6px !important; }
+        .popup-title { font-weight: 500; margin-bottom: 3px; font-size: 12px; }
+        .popup-row { color: var(--text-2); font-size: 11.5px; line-height: 1.6; }
+        .popup-val { font-family: var(--font-mono); font-weight: 500; }
+        .popup-val.red { color: var(--red); }
+        .popup-val.green { color: var(--green); }
+
+        /* ── RESPONSIVE ── */
+        @media (max-width: 640px) {
+            .site-header { padding: 12px 14px 28px; }
+            .brand-title { font-size: 14px; }
+            .nav-actions { right: 12px; top: 12px; }
+            .nav-btn { padding: 6px 12px; font-size: 10px; }
+            .layers-panel { right: 12px; top: 52px; width: 178px; padding: 10px 10px 6px; }
+            .layer-info { font-size: 11px; gap: 6px; }
+            .legend-panel { right: 12px; bottom: 54px; }
+            .timeline-inner { padding: 7px 14px; gap: 10px; }
+            .play-btn { width: 28px; height: 28px; }
+            .play-btn svg { width: 10px; height: 10px; }
+            .day-readout { font-size: 11px; width: 56px; }
+            .modal-sheet { width: 96%; }
+            .modal-head { padding: 16px 18px 0; }
+            .modal-body { padding: 14px 18px 20px; }
+        }
+    </style>
+</head>
+<body>
+
+    <div class="loading-overlay" id="loading">
+        <div class="loading-mark">
+            <div class="loading-ring"></div>
+            <div class="loading-label">LOADING</div>
+        </div>
+    </div>
+
+    <div id="map"></div>
+
+    <header class="site-header">
+        <div class="site-header-inner">
+            <div class="brand-title">Lagrangian Plastic <span>Pathways</span></div>
+        </div>
+    </header>
+
+    <nav class="nav-actions">
+        <button class="nav-btn" onclick="openModal()">ABOUT</button>
+        <button class="nav-btn" onclick="openModal('methods')">METHODS</button>
+    </nav>
+
+    <div class="layers-panel panel">
+        <div class="panel-label">Layers</div>
+        <div class="layer-row" onclick="toggleLayer('particles')">
+            <div class="layer-info"><div class="layer-dot dot-particles"></div>Particles</div>
+            <div class="toggle on" id="toggle-particles"></div>
+        </div>
+        <div class="layer-row" onclick="toggleLayer('tracks')">
+            <div class="layer-info"><div class="layer-dot dot-tracks"></div>Tracks</div>
+            <div class="toggle on" id="toggle-tracks"></div>
+        </div>
+        <div class="layer-row" onclick="toggleLayer('hotspots')">
+            <div class="layer-info"><div class="layer-dot dot-hotspots"></div>Hotspots</div>
+            <div class="toggle on" id="toggle-hotspots"></div>
+        </div>
+        <div class="layer-row" onclick="toggleLayer('sources')">
+            <div class="layer-info"><div class="layer-dot dot-rivers"></div>Rivers</div>
+            <div class="toggle on" id="toggle-sources"></div>
+        </div>
+    </div>
+
+    <div class="legend-panel panel">
+        <div class="panel-label" style="margin-bottom:0">Beaching Probability</div>
+        <div class="legend-bar"></div>
+        <div class="legend-range"><span>Low</span><span>High</span></div>
+    </div>
+
+    <div class="timeline-bar">
+        <div class="timeline-inner">
+            <button class="play-btn" id="playBtn" onclick="togglePlay()" aria-label="Play/Pause">
+                <svg class="icon-play" viewBox="0 0 24 24"><polygon points="8,5 20,12 8,19" fill="#ffffff"/></svg>
+                <svg class="icon-pause" viewBox="0 0 24 24"><rect x="6" y="5" width="3.5" height="14" fill="#ffffff"/><rect x="14.5" y="5" width="3.5" height="14" fill="#ffffff"/></svg>
+            </button>
+            <div class="slider-track">
+                <input type="range" id="daySlider" min="0" max="90" value="90" oninput="setDay(this.value)" aria-label="Simulation day">
+            </div>
+            <div class="day-readout" id="dayDisplay">Day 90</div>
+            <button class="speed-btn" id="speedBtn" onclick="cycleSpeed()">0.5×</button>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="modalOverlay" onclick="closeModal(event)">
+        <div class="modal-sheet">
+
+            <div id="m-about" class="modal-tab">
+                <div class="modal-head">
+                    <div>
+                        <div class="modal-title">Plastic <span>Pathways</span></div>
+                        <div class="modal-subtitle">Lagrangian Particle Tracking Simulator</div>
+                    </div>
+                    <button class="modal-close mc" onclick="closeModal()" aria-label="Close">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <p>18,000 virtual particles were placed at the mouths of the world's most polluting rivers, then tracked for 90 days through observed ocean currents and wind patterns. This map shows where they ended up.</p>
+                    <p>The simulation runs on real ocean current data from GLORYS12 and wind data from ERA5. OceanParcels drives the particle tracking, with a 2% windage correction to account for how wind pushes floating plastic</p>
+
+                    <div class="section-label">What You're Actually Looking At</div>
+                    <div class="legend-list">
+                        <div class="legend-item">
+                            <div class="legend-item-dot" style="background:var(--cyan)"></div>
+                            <p><strong>Particle tracks</strong> show where each piece of virtual plastic drifted. Use the timeline to watch them grow day by day.</p>
+                        </div>
+                        <div class="legend-item">
+                            <div class="legend-item-dot" style="background:var(--red)"></div>
+                            <p><strong>Beaching hotspots</strong> show where plastic accumulates on coastlines. Darker hexagons mean higher probability.</p>
+                        </div>
+                        <div class="legend-item">
+                            <div class="legend-item-dot" style="background:var(--green)"></div>
+                            <p><strong>River sources</strong> are the 18 highest-polluting rivers globally (Lebreton et al. 2017). Asian rivers contribute 86% of oceanic plastic.</p>
+                        </div>
+                    </div>
+
+                    <div class="section-label">Validation</div>
+                    <p>Simulated trajectories were compared against NOAA Global Drifter Program observations. Separation distance under 100 km at 30 days for top-performing pairs, consistent with the ~8 km resolution of GLORYS12.</p>
+
+                    <div class="stats-grid">
+                        <div class="stat-cell">
+                            <div class="stat-label">Particles</div>
+                            <div class="stat-value cyan">18,000</div>
+                        </div>
+                        <div class="stat-cell">
+                            <div class="stat-label">Rivers</div>
+                            <div class="stat-value green">18</div>
+                        </div>
+                        <div class="stat-cell">
+                            <div class="stat-label">Beached</div>
+                            <div class="stat-value red">60.1%</div>
+                        </div>
+                        <div class="stat-cell">
+                            <div class="stat-label">Duration</div>
+                            <div class="stat-value amber">90 days</div>
+                        </div>
+                    </div>
+
+                    <hr class="modal-divider">
+                    <div class="section-label" style="margin-top:0">Sources</div>
+                    <div class="source-list">
+                        GLORYS12, Copernicus Marine Service<br>
+                        ERA5, Copernicus Climate Data Store<br>
+                        GDP Drifters, NOAA AOML<br>
+                        GSHHG Shorelines, NOAA/SOEST<br>
+                        Lebreton et al. (2017), Nat. Comm. 8:15611<br>
+                        OceanParcels, Lange &amp; van Sebille (2017)
+                    </div>
+                </div>
+            </div>
+
+            <div id="m-methods" class="modal-tab is-hidden">
+                <div class="modal-head">
+                    <div>
+                        <div class="modal-title">Methodology</div>
+                        <div class="modal-subtitle">Technical Pipeline</div>
+                    </div>
+                    <button class="modal-close mc" onclick="closeModal()" aria-label="Close">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <div class="method-steps">
+                        <div class="method-step">
+                            <div class="method-step-num">01 - DATA ACQUISITION</div>
+                            <p>Ocean surface currents from GLORYS12 reanalysis at 1/12° daily resolution. 10m wind components from ERA5, resampled to daily. Coverage: Jan 2020 – Apr 2021.</p>
+                        </div>
+                        <div class="method-step">
+                            <div class="method-step-num">02 - PROCESSING</div>
+                            <p>GLORYS12 NetCDF converted to Zarr with Dask for chunked access. ERA5 spatially subsetted, temporally resampled, longitude converted from 0–360° to ±180°.</p>
+                        </div>
+                        <div class="method-step">
+                            <div class="method-step-num">03 - SIMULATION</div>
+                            <p>OceanParcels v3.1.4, RK4 advection, 1-hour timestep. Custom windage kernel: 2% of 10m wind with latitude-dependent m-to-deg conversion (111,320 cos(φ) for lon, 110,540 for lat). Out-of-bounds particles deleted via StatusCode kernel.</p>
+                        </div>
+                        <div class="method-step">
+                            <div class="method-step-num">04 - BEACHING DETECTION</div>
+                            <p>Final positions within 0.25° (~25 km) of GSHHG coastline classified as beached. Aggregated into H3 hex cells (res 5, ~252 km²), normalized by total seeded.</p>
+                        </div>
+                        <div class="method-step">
+                            <div class="method-step-num">05 - INFRASTRUCTURE</div>
+                            <p>*Most of this infrastructure stack is overkill, I was just trying to get some hands on experience with it.* Tegola tile server containerized, deployed to minikube via Terraform with HPA. Static layers as PMTiles. Frontend: MapLibre GL JS.</p>
+                        </div>
+                        <div class="method-step">
+                            <div class="method-step-num">06 - VALIDATION</div>
+                            <p>10 GDP drifters from Jan 2020 compared via separation distance (Liu &amp; Weisberg 2011). Sub-100 km at 30 days for best pairs. All drifters showed correct bulk transport.</p>
+                        </div>
+                        <div class="method-step">
+                            <div class="method-step-num">Improvemnts to be made</div>
+                            <p> land mask was applied,but buffers seemed to have worked improperly, so particles can drift through coastlines and landmasses, visible in some track lines. Beaching detection uses a simple proximity buffer at the final timestep rather than continuous coastline interaction. The 90-day runtime misses longer gyre accumulation patterns. Windage is a flat 2% rather than a distribution reflecting variable debris buoyancy. Particle seeding is uniform across rivers rather than weighted by actual plastic discharge estimates. A longer simulation with a land-ocean mask, continuous beaching kernel, and discharge-weighted seeding would improve it all. </p>
+                        </div>
+                    </div>
+
+                    <hr class="modal-divider">
+                    <div class="section-label" style="margin-top:0">Stack</div>
+                    <div class="source-list">
+                        Python, OceanParcels, Dask, xarray, GeoPandas, H3<br>
+                        Docker, Kubernetes, Terraform, Tegola<br>
+                        MapLibre GL JS, PMTiles, Tippecanoe
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+    var currentDay = 90, playing = false, animFrame = null, speed = 0.5, speedIdx = 0;
+    var allPointData = null, allTrackData = null;
+    var speeds = [0.5, 1, 2, 4];
+
+    var rivers = [
+        {n:'Yangtze',c:[121.9,31.4],t:'330,000'},{n:'Ganges',c:[89.0,22.0],t:'120,000'},
+        {n:'Xi',c:[113.3,22.1]},{n:'Huangpu',c:[121.5,31.2]},{n:'Mekong',c:[106.6,10.0]},
+        {n:'Indus',c:[67.3,23.9]},{n:'Brantas',c:[112.7,-7.5]},{n:'Solo',c:[112.5,-6.9]},
+        {n:'Serayu',c:[109.3,-7.7]},{n:'Pasig',c:[120.9,14.5]},{n:'Irrawaddy',c:[95.2,16.4]},
+        {n:'Zhujiang',c:[113.6,22.2]},{n:'Cross',c:[8.3,4.6],t:'40,300'},
+        {n:'Imo',c:[7.3,4.5],t:'21,500'},{n:'Kwa Ibo',c:[7.9,4.5],t:'11,900'},
+        {n:'Amazon',c:[-49.3,-0.5],t:'38,900'},{n:'Magdalena',c:[-75.0,11.0],t:'16,700'},
+        {n:'Mississippi',c:[-89.4,29.0]}
+    ];
+
+    var $slider = document.getElementById('daySlider');
+    var $dayDisplay = document.getElementById('dayDisplay');
+    var $playBtn = document.getElementById('playBtn');
+    var $speedBtn = document.getElementById('speedBtn');
+    var $modalOverlay = document.getElementById('modalOverlay');
+    var $mAbout = document.getElementById('m-about');
+    var $mMethods = document.getElementById('m-methods');
+
+    function openModal(s) {
+        $mAbout.classList.toggle('is-hidden', s === 'methods');
+        $mMethods.classList.toggle('is-hidden', s !== 'methods');
+        $modalOverlay.classList.add('open');
+    }
+    function closeModal(e) {
+        if (e && e.target !== $modalOverlay && !e.target.classList.contains('mc')) return;
+        $modalOverlay.classList.remove('open');
+    }
+
+    var layerState = { particles: true, tracks: true, hotspots: true, sources: true };
+    var layerMap = {
+        particles: ['anim-pts'],
+        tracks: ['track-lines'],
+        hotspots: ['hs-fill', 'hs-line'],
+        sources: ['src-dots', 'src-labels']
+    };
+    function toggleLayer(n) {
+        layerState[n] = !layerState[n];
+        document.getElementById('toggle-' + n).classList.toggle('on');
+        var ids = layerMap[n];
+        var vis = layerState[n] ? 'visible' : 'none';
+        for (var i = 0; i < ids.length; i++) {
+            if (map.getLayer(ids[i])) map.setLayoutProperty(ids[i], 'visibility', vis);
+        }
+    }
+
+    function setDay(d) {
+        currentDay = +d;
+        $slider.value = currentDay;
+        $dayDisplay.textContent = 'Day ' + currentDay;
+        updateParticles();
+        updateTracks();
+    }
+
+    function togglePlay() {
+        playing = !playing;
+        $playBtn.classList.toggle('playing', playing);
+        if (playing) { lastT = 0; animFrame = requestAnimationFrame(animate); }
+        else if (animFrame) { cancelAnimationFrame(animFrame); animFrame = null; }
+    }
+
+    function cycleSpeed() {
+        speedIdx = (speedIdx + 1) % speeds.length;
+        speed = speeds[speedIdx];
+        $speedBtn.textContent = speed + '×';
+    }
+
+    var lastT = 0;
+    function animate(ts) {
+        if (!playing) return;
+        if (!lastT || ts - lastT > (400 / speed)) {
+            lastT = ts;
+            currentDay = (currentDay + 1) % 91;
+            setDay(currentDay);
+        }
+        animFrame = requestAnimationFrame(animate);
+    }
+
+    function updateParticles() {
+        if (!allPointData || !map.getSource('pt-src')) return;
+        var day = currentDay, filtered = [], features = allPointData.features;
+        for (var i = 0; i < features.length; i++) {
+            if (features[i].properties.day === day) filtered.push(features[i]);
+        }
+        map.getSource('pt-src').setData({ type: 'FeatureCollection', features: filtered });
+    }
+
+    function updateTracks() {
+        if (!allTrackData || !map.getSource('tracks')) return;
+        var features = allTrackData.features, ratio = currentDay / 90, clipped = [];
+        for (var i = 0; i < features.length; i++) {
+            var coords = features[i].geometry.coordinates;
+            var endIdx = Math.round(ratio * (coords.length - 1)) + 1;
+            if (endIdx < 2) continue;
+            clipped.push({
+                type: 'Feature',
+                properties: features[i].properties,
+                geometry: { type: 'LineString', coordinates: coords.slice(0, endIdx) }
+            });
+        }
+        map.getSource('tracks').setData({ type: 'FeatureCollection', features: clipped });
+    }
+
+    var protocol = new pmtiles.Protocol();
+    maplibregl.addProtocol('pmtiles', protocol.tile);
+
+    var map = new maplibregl.Map({
+        container: 'map',
+        style: {
+            version: 8,
+            sources: {
+                carto: {
+                    type: 'raster',
+                    tiles: ['https://basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}@2x.png'],
+                    tileSize: 256
+                }
+            },
+            layers: [{ id: 'base', type: 'raster', source: 'carto' }],
+            glyphs: 'https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf'
+        },
+        center: [90, 12], zoom: 2.8, minZoom: 1, maxZoom: 12
+    });
+
+    map.on('load', function() {
+        document.getElementById('loading').classList.add('done');
+
+        map.addSource('tracks', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+        map.addLayer({
+            id: 'track-lines', type: 'line', source: 'tracks',
+            paint: { 'line-color': '#00d4ff', 'line-opacity': 0.11, 'line-width': 0.8 }
+        });
+        fetch('particle_tracks.geojson').then(function(r) { return r.json(); }).then(function(data) {
+            allTrackData = data;
+            updateTracks();
+        });
+
+        map.addSource('hotspots', { type: 'geojson', data: 'beaching_hotspots.geojson' });
+        map.addLayer({
+            id: 'hs-fill', type: 'fill', source: 'hotspots',
+            paint: {
+                'fill-color': ['interpolate', ['linear'], ['get', 'probability'],
+                    0.0005, '#ffd23f', 0.002, '#f59e0b', 0.005, '#e8553a', 0.008, '#dc2626', 0.012, '#7f1d1d'],
+                'fill-opacity': 0.65
+            }
+        });
+        map.addLayer({
+            id: 'hs-line', type: 'line', source: 'hotspots',
+            paint: { 'line-color': 'rgba(255,255,255,0.07)', 'line-width': 0.5 }
+        });
+
+        fetch('particle_points.geojson').then(function(r) { return r.json(); }).then(function(data) {
+            allPointData = data;
+            var init = [];
+            for (var i = 0; i < data.features.length; i++) {
+                if (data.features[i].properties.day === 90) init.push(data.features[i]);
+            }
+            map.addSource('pt-src', { type: 'geojson', data: { type: 'FeatureCollection', features: init } });
+            map.addLayer({
+                id: 'anim-pts', type: 'circle', source: 'pt-src',
+                paint: {
+                    'circle-radius': ['interpolate', ['linear'], ['zoom'], 2, 1.5, 6, 3, 10, 5],
+                    'circle-color': '#00d4ff',
+                    'circle-opacity': 0.85,
+                    'circle-blur': 0.2
+                }
+            });
+        });
+
+        var srcFeatures = [];
+        for (var i = 0; i < rivers.length; i++) {
+            srcFeatures.push({
+                type: 'Feature',
+                properties: { name: rivers[i].n, tonnes: rivers[i].t || null },
+                geometry: { type: 'Point', coordinates: rivers[i].c }
+            });
+        }
+        map.addSource('sources', { type: 'geojson', data: { type: 'FeatureCollection', features: srcFeatures } });
+        map.addLayer({
+            id: 'src-dots', type: 'circle', source: 'sources',
+            paint: {
+                'circle-radius': 4, 'circle-color': '#2dd4a0',
+                'circle-stroke-width': 1.5, 'circle-stroke-color': 'rgba(45,212,160,0.18)',
+                'circle-opacity': 0.9
+            }
+        });
+        map.addLayer({
+            id: 'src-labels', type: 'symbol', source: 'sources',
+            layout: {
+                'text-field': ['get', 'name'], 'text-size': 9,
+                'text-offset': [0, 1.4], 'text-anchor': 'top',
+                'text-font': ['Open Sans Regular']
+            },
+            paint: {
+                'text-color': '#2dd4a0',
+                'text-halo-color': 'rgba(5,13,24,0.9)',
+                'text-halo-width': 1.5,
+                'text-opacity': 0.7
+            }
+        });
+
+        map.on('click', 'hs-fill', function(e) {
+            if (!e.features.length) return;
+            var p = e.features[0].properties;
+            new maplibregl.Popup({ offset: 8 }).setLngLat(e.lngLat)
+                .setHTML(
+                    '<div class="popup-title">Beaching Hotspot</div>' +
+                    '<div class="popup-row">Probability <span class="popup-val red">' + (p.probability * 100).toFixed(2) + '%</span></div>' +
+                    '<div class="popup-row">Particles <span class="popup-val red">' + p.beach_count + '</span></div>'
+                ).addTo(map);
+        });
+        map.on('click', 'src-dots', function(e) {
+            if (!e.features.length) return;
+            var p = e.features[0].properties;
+            var t = p.tonnes ? '<div class="popup-row">Est. plastic <span class="popup-val green">' + p.tonnes + ' t/yr</span></div>' : '';
+            new maplibregl.Popup({ offset: 8 }).setLngLat(e.lngLat)
+                .setHTML(
+                    '<div class="popup-title">' + p.name + ' River</div>' + t +
+                    '<div class="popup-row">1,000 particles seeded</div>'
+                ).addTo(map);
+        });
+
+        var canvas = map.getCanvas();
+        ['hs-fill', 'src-dots'].forEach(function(id) {
+            map.on('mouseenter', id, function() { canvas.style.cursor = 'pointer'; });
+            map.on('mouseleave', id, function() { canvas.style.cursor = ''; });
+        });
+    });
+    </script>
+</body>
+</html>

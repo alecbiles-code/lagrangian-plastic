@@ -1,0 +1,20 @@
+[webserver]
+port = ":8080"
+
+[[providers]]
+name = "hotspots"
+type = "gpkg"
+filepath = "/data/beaching_hotspots.gpkg"
+
+  [[providers.layers]]
+  name = "beaching"
+  tablename = "beaching_hotspots"
+  id_fieldname = "fid"
+
+[[maps]]
+name = "plastic"
+
+  [[maps.layers]]
+  provider_layer = "hotspots.beaching"
+  min_zoom = 2
+  max_zoom = 10
