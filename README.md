@@ -1,12 +1,14 @@
 # Lagrangian Plastic Pathways & Beaching Risk Simulator
 
-A start to finish geospatial pipeline that simulates where floating marine plastic travels and where it beaches. All powered by real ocean data, open-source tools, and deployed on Kubernetes (the most over-engineered tile server ever deployed to a 2017 ThinkPad)
+A start to finish geospatial pipeline that simulates where floating marine plastic travels and where it beaches. All powered by real ocean data, open-source tools, and deployed on Kubernetes (the most over engineered tile server ever deployed to a 2017 Lenovo ThinkPad)
 
+
+[Lagrangian ocean analysis](<https://en.wikipedia.org/wiki/Lagrangian_ocean_analysis>)
 ---
 
-## What This Does
+## What This All Does
 
-18,000 virtual plastic particles are released from the mouths of the world's 18 most polluting rivers and tracked for 90 days through real ocean currents and wind fields. The simulation identifies which coastlines are most at risk from river-sourced plastic pollution.
+18,000 virtual plastic particles were/are released from the mouths of the world's 18 most polluting rivers and tracked for 90 days through real ocean currents and wind dataa. The simulation identifies which coastlines are most at risk from river-sourced plastic pollution.
 
 The web map lets you scrub through time and watch particles disperse day by day, see where they accumulate on coastlines, and explore probable beaching hotspots.
 
@@ -27,27 +29,19 @@ The web map lets you scrub through time and watch particles disperse day by day,
 
 ## Architecture
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│  DATA ACQUISITION                                               │
-│  GLORYS12 ocean currents · ERA5 winds · NOAA GDP drifters       │
-├─────────────────────────────────────────────────────────────────┤
-│  PROCESSING                                                     │
-│  NetCDF → Zarr (Dask) · ERA5 subsetting & resampling            │
-├─────────────────────────────────────────────────────────────────┤
-│  SIMULATION                                                     │
-│  OceanParcels · RK4 advection · windage kernel · 1hr timestep   │
-├─────────────────────────────────────────────────────────────────┤
-│  ANALYSIS                                                       │
-│  Beaching detection · H3 hex aggregation · GDP drifter validation│
-├─────────────────────────────────────────────────────────────────┤
-│  INFRASTRUCTURE                                                 │
-│  Docker · minikube · Terraform · Tegola tile server · PMTiles   │
-├─────────────────────────────────────────────────────────────────┤
-│  FRONTEND                                                       │
-│  MapLibre GL JS · animated particle tracks · interactive timeline│
-└─────────────────────────────────────────────────────────────────┘
-```
+
+Data Acquisition: GLORYS12 ocean currents, ERA5 winds, NOAA GDP drifters
+        ↓
+Processing: NetCDF to Zarr (Dask), ERA5 subsetting & resampling
+        ↓
+Simulation: OceanParcels, RK4 advection, windage kernel, 1hr timestep
+        ↓
+Analysis: Beaching detection, H3 hex aggregation, GDP drifter validation
+        ↓
+Infrastructure: Docker, minikube, Terraform, Tegola tile server, PMTiles
+        ↓
+Frontend: MapLibre GL JS, animated particle tracks, interactive timeline
+
 
 ---
 
@@ -63,7 +57,7 @@ All data is free and publicly available.
 | GSHHG | NOAA/SOEST | Global shoreline geometry |
 | Coastal Vulnerability Index | USGS DDS-68 | Coastal risk classification |
 
-River source locations are based on [Lebreton et al. (2017)](https://doi.org/10.1038/ncomms15611), which identified the top plastic-polluting rivers globally. Asian rivers dominate, contributing 86% of all riverine plastic entering the ocean.
+River source locations are based on [Lebreton et al. (2017)](https://doi.org/10.1038/ncomms15611), which identified the top plastic-polluting rivers globally. Rivers in asia make up most of the pollution, contributing 86% of all river based plastic entering the ocean.
 
 ---
 
@@ -71,11 +65,11 @@ River source locations are based on [Lebreton et al. (2017)](https://doi.org/10.
 
 ### Simulation
 
-Lagrangian particle tracking via **OceanParcels v3.1.4** with 4th-order Runge-Kutta advection at a 1-hour timestep. A custom windage kernel applies 2% of 10m wind speed as additional drift on each particle, with proper meters-to-degrees conversion using latitude-dependent scaling. Particles that exit the data domain are removed via a StatusCode recovery kernel.
+Lagrangian particle tracking via **OceanParcels v3.1.4** with 4th-order Runge-Kutta advection.. A custom windage kernel applies 2% of 10m wind speed as additional drift on each particle, with proper meters-to-degrees conversion using latitude-dependent scaling. Particles that exit the data domain are removed via a StatusCode recovery kernel.
 
 ### Beaching Detection
 
-Particles whose final position falls within 0.25° (~25 km) of the GSHHG coastline are classified as beached. Beaching counts are aggregated into H3 hexagonal cells at resolution 5 (~252 km²) and normalized by total particles seeded to produce probability maps.
+Particles whose final position falls within 0.25° (~25 km) of the GSHHG coastline are classified as beached. Beaching counts are aggregated into H3 hexagonal cells at resolution 5 (252 km²) and normalized by total particles seeded to produce probability maps.
 
 ### Validation
 
@@ -83,12 +77,13 @@ Particles whose final position falls within 0.25° (~25 km) of the GSHHG coastli
 
 ### Infrastructure
 
-The Tegola vector tile server is containerized with Docker and deployed to a local Kubernetes cluster (minikube), managed entirely via Terraform with horizontal pod autoscaling. Static beaching layers are served as PMTiles. The frontend is built with MapLibre GL JS.
+The Tegola vector tile server is containerized with Docker and deployed to a local Kubernetes cluster (minikube), managed entirely by Terraform with horizontal pod autoscaling! Static beaching layers are served as PMTiles. The frontend is built with MapLibre GL JS.
 
 ---
 
 ## Project Structure
 
+```
 ```
 lagrangian-plastic/
 ├── src/
@@ -98,10 +93,10 @@ lagrangian-plastic/
 │   ├── convert_zarr.py            # NetCDF to Zarr conversion (Dask)
 │   ├── hotspot_analysis.py        # Beaching detection & H3 aggregation
 │   ├── validate_drifters.py       # GDP drifter selection
-│   ├── run_validation_sim.py      # Validation particle simulation
-│   ├── compute_separation.py      # Separation distance & plots
-│   ├── export_tracks_geojson.py   # Export tracks for frontend
-│   ├── export_animated_tracks.py  # Export timestamped points for animation
+│   ├── run_validation_sim.py      # validation particle simulation
+│   ├── compute_separation.py      # separation distance & plots
+│   ├── export_tracks_geojson.py   # export tracks for frontend
+│   ├── export_animated_tracks.py  # export timestamped points for animation
 │   └── make_gpkg.py               # GeoJSON to GeoPackage for Tegola
 ├── frontend/
 │   ├── index.html                 # Interactive web map
@@ -113,68 +108,16 @@ lagrangian-plastic/
 │   ├── main.tf                    # Terraform K8s deployment
 │   └── tegola/
 │       ├── Dockerfile             # Tegola container
-│       └── tegola_config.toml     # Tile server config
-├── Dockerfile                     # Science stack container
+│       └── tegola_config.toml     # Tile server configg
+├── Dockerfile                     # science stack container
 └── .gitignore
-```
-
----
-
-## Running It Yourself
-
-### Prerequisites
-
-- Python 3.10+ with conda
-- Docker Desktop
-- minikube + kubectl
-- Terraform
-- Tippecanoe (via WSL on Windows)
-- Free accounts: Copernicus Marine Service, Copernicus CDS
-
-### Setup
-
-```bash
-# Create environment
-conda create -n lagrangian python=3.11 -y
-conda activate lagrangian
-pip install parcels dask[complete] distributed xarray zarr netCDF4 \
-    scipy scikit-learn geopandas shapely cartopy h3 h3pandas \
-    copernicusmarine cdsapi matplotlib jupyter h5py
-
-# Download data (requires Copernicus credentials)
-python src/download_glorys.py
-python src/download_era5.py
-
-# Process
-python src/convert_zarr.py
-
-# Simulate
-python src/simulation.py
-
-# Analyze
-python src/hotspot_analysis.py
-
-# Export for frontend
-python src/export_animated_tracks.py
-
-# Serve locally
-cd frontend && python -m http.server 8000
-```
-
-### Kubernetes Deployment
-
-```bash
-minikube start --cpus=4 --memory=7000 --driver=docker
-cd infra && terraform init && terraform apply
-kubectl get pods
-minikube service tegola-service --url
 ```
 
 ---
 
 ## Known Limitations
 
-No land mask was applied, so particles can drift through coastlines and landmasses in some cases. Beaching detection uses a simple proximity buffer at the final timestep rather than continuous coastline interaction. The 90-day runtime misses longer gyre accumulation patterns. Windage is a flat 2% rather than a distribution reflecting variable debris buoyancy. Particle seeding is uniform across rivers rather than weighted by actual plastic discharge estimates.
+The land mask that I applied does not seem to work, and I can't figure out why.... so particles drift through coastlines and landmasses in some cases. Beaching detection uses a simple proximity buffer at the final timestep insted of continuous coastline interaction. The 90-day runtime misses longer gyre accumulation patterns. Windage is a flat 2% insted of a distribution reflecting variable debris buoyancy. Particle seeding is uniform across rivers rather than weighted by actual plastic discharge estimates.
 
 ---
 
