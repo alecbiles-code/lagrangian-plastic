@@ -2,7 +2,7 @@
 
 A start to finish geospatial pipeline that simulates where floating marine plastic travels and where it beaches. All powered by real ocean data, open-source tools, and deployed on Kubernetes (the most over engineered tile server ever deployed to a 2017 Lenovo ThinkPad)
 
-
+General Largarian Ocean Analysis info
 [Lagrangian ocean analysis](<https://en.wikipedia.org/wiki/Lagrangian_ocean_analysis>)
 ---
 
@@ -29,7 +29,7 @@ The web map lets you scrub through time and watch particles disperse day by day,
 
 ## Architecture
 
-
+```
 Data Acquisition: GLORYS12 ocean currents, ERA5 winds, NOAA GDP drifters
         ↓
 Processing: NetCDF to Zarr (Dask), ERA5 subsetting & resampling
@@ -42,7 +42,7 @@ Infrastructure: Docker, minikube, Terraform, Tegola tile server, PMTiles
         ↓
 Frontend: MapLibre GL JS, animated particle tracks, interactive timeline
 
-
+```
 ---
 
 ## Data Sources
