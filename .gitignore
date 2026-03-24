@@ -6,3 +6,5 @@ __pycache__/
 *.zarr
 .cdsapirc
 node_modules/
+.terraform/
+terraform.exe
